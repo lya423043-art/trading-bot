@@ -8,12 +8,13 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 from telegram import Bot
 import asyncio
+from datetime import datetime
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 
 OWNER_IDS = ["8890419149", "6930861147"]
-BATCH_SIZE = 15
-BREAKOUT_THRESHOLD = -50
+BATCH_SIZE = 10
+BREAKOUT_THRESHOLD = 19
 
 ALL_SYMBOLS = [
     "DOGEUSDT", "SHIBUSDT", "PEPEUSDT", "BONKUSDT", "WIFUSDT",
@@ -94,6 +95,7 @@ def make_candlestick(df, symbol, interval):
 
 async def send_photo(bot, buf, caption):
     for id in OWNER_IDS:
+        print(f"📤 Sending to: {id}")
         try:
             await bot.send_photo(chat_id=id, photo=buf, caption=caption, parse_mode="HTML")
             print(f"✅ Photo sent to {id}")
@@ -108,22 +110,44 @@ async def check_signal(bot, symbol, interval):
 
     last = df.iloc[-1]
     close = last["close"]
+    open_price = last["open"]
 
     if close > 1:
         return
 
+    upper, mid, lower = calc_bb(df)
+    last_upper = upper.iloc[-1]
+    last_lower = lower.iloc[-1]
+    width = last_upper - last_lower
+
+    if pd.isna(width) or width == 0:
+        return
+
+    if close <= open_price:
+        return
+
+    if close <= last_upper:
+        return
+
+    breakout_pct = ((close - last_upper) / width) * 100
+    if breakout_pct < BREAKOUT_THRESHOLD:
+        return
+
     buf = make_candlestick(df, symbol, interval)
     caption = (
-        f"🚀 <b>تست سیگنال</b>\n\n"
+        f"🚀 <b>سیگنال شیت‌کوین</b>\n\n"
         f"📊 <b>{symbol}</b> - {interval}\n"
-        f"💰 قیمت: <code>{close:.6f}</code>"
+        f"💰 قیمت: <code>{close:.6f}</code>\n"
+        f"🔥 بیرون‌زدگی: <b>{breakout_pct:.2f}%</b>\n"
+        f"🕐 زمان: {datetime.utcnow().strftime('%H:%M UTC')}"
     )
     await send_photo(bot, buf, caption)
-    print(f"✅ {symbol} {interval}")
+    print(f"✅ {symbol} {interval} | {breakout_pct:.2f}%")
 
 
 async def main():
     bot = Bot(token=TOKEN)
+    print(f"🕐 Start time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     batch = random.sample(ALL_SYMBOLS, BATCH_SIZE)
     print(f"🔍 Checking: {', '.join(batch)}")
 
@@ -131,6 +155,8 @@ async def main():
         for tf in TIMEFRAMES:
             await check_signal(bot, symbol, tf)
             await asyncio.sleep(0.5)
+
+    print(f"🏁 Done at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
 
 if __name__ == "__main__":
